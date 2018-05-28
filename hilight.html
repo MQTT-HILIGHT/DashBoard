@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <!-- Meta, title, CSS, favicons, etc. -->
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>HILIGHT</title>
+
+  <!-- Bootstrap -->
+  <link href="vendors/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link href="vendors/font-awesome/css/font-awesome.min.css" rel="stylesheet">
+  <!-- NProgress -->
+  <link href="vendors/nprogress/nprogress.css" rel="stylesheet">
+  <!-- bootstrap-daterangepicker -->
+  <link href="vendors/bootstrap-daterangepicker/daterangepicker.css" rel="stylesheet">
+
+  <!-- Custom Theme Style -->
+  <link href="build/css/custom.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+
+  <!-- jQuery -->
+  <script src="vendors/jquery/dist/jquery.min.js"></script>
+  <script>
+    var wsbroker = "127.0.0.1"; //mqtt websocket enabled broker
+    var wsport = 9001; // port for above
+    var index = []; // this is canvas index
+    var socketArray = [];
+    var chart_tab_panel_index = 0;
+    var client_num = 0;
+    var mouseX=0, mouseY=0;
+    var isDragging = false;
+    var isImgDragging = false;
+    var image;
+    function connectClient(mchart, topic, selectedChartTabIn, clientIndex) {
+      var client = new Paho.MQTT.Client(wsbroker, wsport, "myclientid_" + clientIndex); //parseInt(Math.random() * 100, 10)
+      client.onConnectionLost = onConnectionLost;
+      client.onMessageArrived = onMessageArrived;
+      // called when the client loses its connection
+      function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+          console.log("onConnectionLost:" + responseObject.errorMessage);
+        }
+      }
+
+
+
+      function addData(chart, label, data) {
+
+        if (chart.data.datasets[0].data.length > 15) {
+          chart.options.animation.duration = 0;
+          chart.data.labels.shift(); // remove the label first
+
+          chart.data.datasets.forEach(function(dataset, datasetIndex) {
+            dataset.data.shift();
+          });
+          /* chart.data.labels.splice(0, 1);
+            chart.data.datasets.forEach((dataset) => {
+              dataset.data.splice(0, 1); // remove first data point
+            });*/
+          chart.update();
+        }
+        chart.options.animation.duration = 1000;
+        chart.data.labels.push(label);
+        chart.data.datasets.forEach((dataset) => {
+          dataset.data.push(data);
+        });
+        chart.update();
+
+      }
+      // called when a message arrives
+      function onMessageArrived(message) {
+        //alert(encodeURIComponent(message.payloadString));
+        //alert(message.payloadString);
+        //        var urgencyChart = $("my-chart-class" + selectedChartTabIn + "-" + clientIndex);
+        if ((topic.match("gas") || topic.match("fire") || topic.match("test")) && message.payloadString == "0") {
+          //alert("재난 발생!");
+          var streamingTag =   $("img#streamingTag" + selectedChartTabIn);
+          streamingTag.attr("src", "http://192.168.0.45:8090/" + topic + ".mjpg");
+          streamingTag.show("slow");
+          streamingTag
+            .mousedown(function(e) {
+              isImgDragging = true;
+            })
+            .mouseup(function(e) {
+              isImgDragging = false;
+            });
+          image = streamingTag;
+          setTimeout(function(stremaingTagIndex) {
+            var tag = $("img#streamingTag" + stremaingTagIndex);
+            tag.attr("src", "images/img.jpg");
+            tag.hide(500);
+          }, 20000, selectedChartTabIn) //10s
+        }
+
+        var date = new Date();
+        var print_date = date.getHours() + ":" + date.getMinutes() + ":" + date.getSeconds();
+        addData(mchart, print_date, message.payloadString);
+        $("h4.mqtt_messages")[clientIndex].innerHTML = message.payloadString;
+        //alert(message.payloadString);
+        console.log(clientIndex + " onMessageArrived:" + message.payloadString);
+      }
+
+      var options = {
+        timeout: 3,
+        onSuccess: function() {
+          socketArray.push(client);
+          console.log("mqtt connected");
+          // Connection succeeded; subscribe to our topic, you can add multile lines of these
+          client.subscribe(topic, {
+            qos: 1
+          });
+
+          //use the below if you want to publish to a topic on connect
+          // message = new Paho.MQTT.Message("Hello");
+          // message.destinationName = "/World";
+          // client.send(message);
+
+        },
+        onFailure: function(message) {
+          console.log("Connection failed: " + message.errorMessage);
+        }
+      };
+
+      // connect the client
+      client.connect(options);
+    }
+
+
+    function createChart(selectedChartTabIndex, target, topic, selected_chart) {
+      // alert(a);
+      // alert(b);
+      var ctx = $(target + " .canvas");
+      var chart = $("div#myChart").html(); //get Chart data
+      chart = chart.replace("bigName", topic); //change bigName
+      chart = chart.replace("smallName", selected_chart);
+      chart = chart.replace("close_chart()", "close_chart(" + selectedChartTabIndex + "," + index[selectedChartTabIndex] + ")");
+      chart = chart.replace("class=\"col-md-4 col-sm-4 col-xs-12\"", "class=\"col-md-4 col-sm-4 col-xs-12\" id=\"my-chart-class" + selectedChartTabIndex + "-" + index[selectedChartTabIndex] + "\"");
+      chart = chart.replace("socketNumber", "socketNumber" + selectedChartTabIndex + "-" + index[selectedChartTabIndex]);
+      if (selectedChartTabIndex == 0) {
+        chart = chart.replace("col-md-4 col-sm-4 col-xs-12", "col-md-6 col-sm-6 col-xs-12");
+      } else if (topic == "gas" || topic == "fire") {
+        chart = chart.replace("col-md-4 col-sm-4 col-xs-12", "col-md-6 col-sm-6 col-xs-12");
+      }
+      $("div#" + target).append(chart); //
+      var ctx = $("div#" + target + " .canvas");
+      var ctx = ctx[index[selectedChartTabIndex]].getContext('2d');
+      var config = {
+        type: 'line',
+        data: {
+          labels: ["0"],
+          datasets: [{
+              label: "My First dataset",
+              fill: false,
+              backgroundColor: window.chartColors.red,
+              borderColor: window.chartColors.red,
+              data: [
+                0
+              ],
+            }
+            /* , {
+                          label: "My Second dataset",
+                          fill: false,
+                          backgroundColor: window.chartColors.blue,
+                          borderColor: window.chartColors.blue,
+                          data: [
+                            10
+                          ],
+                      } */
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            duration: 700
+          },
+          title: {
+            display: true,
+            text: 'HILIGHT Line Chart'
+          },
+          tooltips: {
+            mode: 'index',
+            intersect: false,
+          },
+          hover: {
+            mode: 'nearest',
+            intersect: true
+          },
+          scales: {
+            xAxes: [{
+              display: true,
+              scaleLabel: {
+                display: true,
+                labelString: '시간'
+              }
+            }],
+            yAxes: [{
+              display: true,
+              scaleLabel: {
+                display: true,
+                labelString: '온도'
+              },
+              ticks: {
+                min: 0
+              }
+            }]
+          }
+        }
+      };
+
+      var chart = new Chart(ctx, config);
+      if (selectedChartTabIndex == 0) {
+        chart.data.datasets[0].borderColor = window.chartColors.red;
+      } else {
+        chart.data.datasets[0].borderColor = window.chartColors.black;
+      }
+
+      if (topic.match("humid")) {
+        chart.options.scales.yAxes[0].ticks.max = 100;
+      } else if (topic.match("gas") || topic.match("fire")) {
+        chart.options.scales.yAxes[0].ticks.max = 1;
+        chart.data.datasets[0].borderColor = window.chartColors.red;
+      } else if (topic.match("button")) {
+        chart.options.scales.yAxes[0].ticks.max = 1;
+        chart.data.datasets[0].borderColor = window.chartColors.yellow;
+      } else if (topic.match("noise")) {
+        chart.options.scales.yAxes[0].ticks.min = 20;
+        chart.options.scales.yAxes[0].ticks.max = 100;
+      }
+      chart.options.scales.yAxes[0].scaleLabel.labelString = topic;
+
+      var t = $("#socketNumber" + selectedChartTabIndex + "-" + index[selectedChartTabIndex]);
+
+      $("#socketNumber" + selectedChartTabIndex + "-" + index[selectedChartTabIndex]).attr('value', client_num);
+      index[selectedChartTabIndex]++;
+      connectClient(chart, topic, selectedChartTabIndex, client_num++);
+    }
+
+    function close_chart(chart_tab_index, chart_index) {
+      //alert(chart_tab_index + " " + chart_index);
+
+      /*index[chart_tab_index]--;
+      var value = parseInt($("#socketNumber" + chart_tab_index + "-" + chart_index).val());
+      $("div#my-chart-class" + chart_tab_index + "-" + chart_index).remove();*/
+      //socketArray[value].disconnect();
+      //socketArray.splice(value,1);//value부터 1개지운다.
+    }
+
+    function addChartBoard(selected_chart_tab_name) {
+      var chart = $("div.chart_tab_panel").html(); //copy Chart data
+      chart = chart.replace(/mySensorModal/g, "mySensorModal" + chart_tab_panel_index);
+      chart = chart.replace(/<input type="hidden">/g, "<input type='hidden' id='hidden-value" + chart_tab_panel_index + "' value=" + chart_tab_panel_index + ">");
+
+      chart = chart.replace(/selected_topic_text/g, "selected_topic_text" + chart_tab_panel_index);
+      chart = chart.replace(/selected_chart_value/g, "selected_chart_value" + chart_tab_panel_index);
+      chart = chart.replace("my-chart-tab-class", "my-chart-tab-class" + chart_tab_panel_index);
+
+      chart = chart.replace("createChart(selected", "createChart(" + chart_tab_panel_index + ",'my-chart-tab-class" + chart_tab_panel_index + "',selected");
+      index.push(0);
+      chart = chart.replace(/streamingTag/g, "streamingTag" + chart_tab_panel_index);
+      chart = chart.replace(/mySensorModalLabel/g, "mySensorModalLabel" + chart_tab_panel_index++);
+      chart = chart.replace("HILIGHT DashBoard", selected_chart_tab_name);
+      $("div#chart_tab_row").append(chart);
+    }
+
+    function changeBrokerIp(ip) {
+      wsbroker = ip;
+      $("#wsbrokerIP").html(wsbroker);
+    }
+
+    function changleToggle(target) {
+      var index = parseInt(target);
+      var content = $(".visual_content")[index + 1];
+      $(content).slideToggle(200);
+    }
+    var globalexitfullscreen = getexitfullscreen();
+    $(document).ready(function() {
+      addChartBoard("HILIGHT DashBoard");
+
+      $(".right_col")
+      .mousedown(function(e) {
+        isDragging = true;
+      })
+      .mousemove(function(e) {
+        if(isDragging && isImgDragging){
+          console.log(e.pageX + " " + e.pageY);
+          mouseX = e.pageX;
+          mouseY = e.pageY;
+          image.css("top",e.pageY-(image.height()/2)+"px");
+          image.css("left",e.pageX-(image.width()/2)+"px");
+        }
+      })
+      .mouseup(function(e) {
+        isDragging = false;
+      })
+      .mouseleave(function(e){
+        isDragging = false;
+        console.log("out!")
+      })
+      .mouseenter(function(e){
+
+      });
+    });
+
+    function getexitfullscreen() {
+      return document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen
+    }
+
+    function setFullScreen() {
+      var element = document.documentElement;
+      if (element.requestFullscreen) {
+        element.requestFullscreen();
+      } else if (element.mozRequestFullScreen) {
+        element.mozRequestFullScreen();
+      } else if (element.webkitRequestFullscreen) {
+        element.webkitRequestFullscreen();
+      } else if (element.msRequestFullscreen) {
+        element.msRequestFullscreen();
+      }
+      getexitfullscreen().call(document);
+    }
+  </script>
+
+
+</head>
+
+<body class="nav-md">
+  <div class="container body">
+    <div class="main_container">
+      <div class="col-md-3 left_col">
+        <div class="left_col scroll-view">
+          <div class="navbar nav_title" style="border: 0;">
+            <a class="site_title"><i class="fa fa-paw"></i> <span>HILIGHT!</span></a>
+          </div>
+
+          <div class="clearfix"></div>
+
+          <!-- menu profile quick info -->
+          <div class="profile clearfix">
+            <div class="profile_pic">
+              <img src="images/HILIGHT.png" alt="..." class="img-circle profile_img">
+            </div>
+            <div class="profile_info">
+              <span>Welcome,</span>
+              <h2>HILIGHT<br>관리 페이지</h2>
+            </div>
+          </div>
+          <!-- /menu profile quick info -->
+
+          <br />
+
+          <!-- sidebar menu -->
+          <div id="sidebar-menu" class="main_menu_side hidden-print main_menu">
+            <div class="menu_section">
+              <h3>General</h3>
+              <ul class="nav">
+                <li><a href="hilight.html" style="color: white;"><i class="fa fa-desktop"></i>HILIGHT Dashboard</a></li>
+              </ul>
+              <!-- <ul class="nav side-menu">
+                <li><a><i class="fa fa-home"></i> Dashboard <span class="fa fa-chevron-down">f</span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="index.html">Dashboard</a></li>
+                    <li><a href="index2.html">Dashboard2</a></li>
+                    <li><a href="index3.html">Dashboard3</a></li>
+                  </ul>
+                </li>
+                <li><a><i class="fa fa-edit"></i> Forms <span class="fa fa-chevron-down"></span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="form.html">General Form</a></li>
+                    <li><a href="form_advanced.html">Advanced Components</a></li>
+                    <li><a href="form_validation.html">Form Validation</a></li>
+                    <li><a href="form_wizards.html">Form Wizard</a></li>
+                    <li><a href="form_upload.html">Form Upload</a></li>
+                    <li><a href="form_buttons.html">Form Buttons</a></li>
+                  </ul>
+                </li>
+                <li><a><i class="fa fa-desktop"></i> UI Elements <span class="fa fa-chevron-down"></span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="general_elements.html">General Elements</a></li>
+                    <li><a href="media_gallery.html">Media Gallery</a></li>
+                    <li><a href="typography.html">Typography</a></li>
+                    <li><a href="icons.html">Icons</a></li>
+                    <li><a href="glyphicons.html">Glyphicons</a></li>
+                    <li><a href="widgets.html">Widgets</a></li>
+                    <li><a href="invoice.html">Invoice</a></li>
+                    <li><a href="inbox.html">Inbox</a></li>
+                    <li><a href="calendar.html">Calendar</a></li>
+                  </ul>
+                </li>
+                <li><a><i class="fa fa-table"></i> Tables <span class="fa fa-chevron-down"></span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="tables.html">Tables</a></li>
+                    <li><a href="tables_dynamic.html">Table Dynamic</a></li>
+                  </ul>
+                </li>
+                <li><a><i class="fa fa-bar-chart-o"></i> Data Presentation <span class="fa fa-chevron-down"></span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="chartjs.html">Chart JS</a></li>
+                    <li><a href="chartjs2.html">Chart JS2</a></li>
+                    <li><a href="morisjs.html">Moris JS</a></li>
+                    <li><a href="echarts.html">ECharts</a></li>
+                    <li><a href="other_charts.html">Other Charts</a></li>
+                  </ul>
+                </li>
+                <li><a><i class="fa fa-clone"></i>Layouts <span class="fa fa-chevron-down"></span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="fixed_sidebar.html">Fixed Sidebar</a></li>
+                    <li><a href="fixed_footer.html">Fixed Footer</a></li>
+                  </ul>
+                </li>
+              </ul> -->
+            </div>
+            <div class="menu_section">
+              <ul class="nav side-menu">
+                <li><a><i class="fa fa-windows"></i> Extras <span class="fa fa-chevron-down"></span></a>
+                  <ul class="nav child_menu">
+                    <li><a href="page_403.html">403 Error</a></li>
+                    <li><a href="page_404.html">404 Error</a></li>
+                    <li><a href="page_500.html">500 Error</a></li>
+                    <li><a href="plain_page.html">Plain Page</a></li>
+                    <li><a href="login.html">Login Page</a></li>
+                    <li><a href="pricing_tables.html">Pricing Tables</a></li>
+                  </ul>
+                </li>
+              </ul>
+            </div>
+
+          </div>
+          <!-- /sidebar menu -->
+
+          <!-- /menu footer buttons -->
+          <div class="sidebar-footer hidden-small">
+            <a data-toggle="tooltip" data-placement="top" title="FullScreen" style="width:100%" onclick="setFullScreen()">
+                <span class="glyphicon glyphicon-fullscreen" aria-hidden="true" ></span>
+              </a>
+          </div>
+          <!-- /menu footer buttons -->
+        </div>
+      </div>
+
+      <!-- top navigation -->
+      <div class="top_nav">
+        <div class="nav_menu">
+          <nav>
+            <div class="nav toggle">
+              <a id="menu_toggle"><i class="fa fa-bars"></i></a>
+            </div>
+
+            <ul class="nav navbar-nav navbar-right">
+              <li class="">
+                <a class="user-profile " aria-expanded="false">
+                    <img src="images/HILIGHT.png" alt="">HILIGHT
+                  </a>
+                <!-- <ul class="dropdown-menu dropdown-usermenu pull-right">
+                  <li><a href="javascript:;"> Profile</a></li>
+                  <li>
+                    <a href="javascript:;">
+                        <span class="badge bg-red pull-right">50%</span>
+                        <span>Settings</span>
+                      </a>
+                  </li>
+                  <li><a href="javascript:;">Help</a></li>
+                  <li><a href="login.html"><i class="fa fa-sign-out pull-right"></i> Log Out</a></li>
+
+                </ul> -->
+              </li>
+              <li>
+                <span>
+                  <a href="#" class="btn btn-primary" style="margin:13px 15px 12px 15px;" data-toggle="modal" data-target="#addChartModal">차트 추가</a>
+                </span>
+                <div class="modal fade" id="addChartModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+                  <!--modal start -->
+                  <div class="modal-dialog">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                        <h4 class="modal-title" id="myModalLabel">차트 탭 추가</h4>
+                      </div>
+                      <div class="modal-body">
+                        <form class="form-horizontal form-label-left input_mask">
+                          <div class="form-group">
+                            <label class="control-label col-md-3 col-sm-3 col-xs-12">차트 탭 이름</label>
+                            <div class="col-md-9 col-sm-9 col-xs-12">
+                              <input type="text" class="form-control" placeholder="localhost" id="selected_chart_tab_name">
+                            </div>
+                          </div>
+                        </form>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="addChartBoard(selected_chart_tab_name.value)" data-dismiss="modal">Save changes</button>
+                      </div>
+                    </div>
+                  </div>
+                  <!--modal end -->
+                </div>
+              </li>
+              <li>
+                <span>
+                  <a href="#" class="btn btn-primary" style="margin:13px 15px 12px 15px;" data-toggle="modal" data-target="#serverIPModal">서버 변경</a>
+                </span>
+                <div class="modal fade" id="serverIPModal" tabindex="-1" role="dialog" aria-labelledby="myServerModalLabel" aria-hidden="true">
+                  <!--modal start -->
+                  <div class="modal-dialog">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                        <h4 class="modal-title" id="myServerModalLabel">Broker IP 변경</h4>
+                      </div>
+                      <div class="modal-body">
+                        <form class="form-horizontal form-label-left input_mask">
+                          <div class="form-group">
+                            <label class="control-label col-md-3 col-sm-3 col-xs-12">Broker IP</label>
+                            <div class="col-md-9 col-sm-9 col-xs-12">
+                              <input type="text" class="form-control" placeholder="localhost" id="selected_bropkerIp_text">
+                            </div>
+                          </div>
+                        </form>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="changeBrokerIp(selected_bropkerIp_text.value)" data-dismiss="modal">Save changes</button>
+                      </div>
+                    </div>
+                  </div>
+                  <!--modal end -->
+                </div>
+              </li>
+              <li>
+                <div id="wsbrokerIP" style="margin:13px 0px 12px 0px; padding:6px 12px;">
+                  <script>
+                    document.write(wsbroker);
+                  </script>
+                </div>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+      <!-- /top navigation -->
+
+      <!-- page content -->
+      <div class="right_col" role="main">
+        <div class="">
+          <div class="row" id="chart_tab_row">
+            <div style="display:none;" class="chart_tab_panel">
+              <div class="col-md-12 col-sm-12 col-xs-12">
+                <div class="x_panel">
+                  <div class="x_title">
+                    <h2 onclick="changleToggle(this.children[1].value)">HILIGHT DashBoard <small>ver 1.0</small><input type="hidden"></h2>
+                    <div style="position:absolute; right:1%;">
+                      <a class="btn btn-primary" style=" " data-toggle="modal" data-target="#mySensorModal">센서 추가</a>
+                      <div class="modal fade" id="mySensorModal" tabindex="-1" role="dialog" aria-labelledby="mySensorModalLabel" aria-hidden="true">
+                        <!--modal start -->
+                        <div class="modal-dialog">
+                          <div class="modal-content">
+                            <div class="modal-header">
+                              <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                              <h4 class="modal-title" id="mySensorModalLabel">Modal title</h4>
+                            </div>
+                            <div class="modal-body">
+                              <form class="form-horizontal form-label-left input_mask">
+                                <div class="form-group">
+                                  <label class="control-label col-md-3 col-sm-3 col-xs-12">Topic</label>
+                                  <div class="col-md-9 col-sm-9 col-xs-12">
+                                    <input type="text" class="form-control" placeholder="Default Topic" id="selected_topic_text">
+                                  </div>
+                                </div>
+                                <div class="form-group">
+                                  <label class="control-label col-md-3 col-sm-3 col-xs-12">Select Chart</label>
+                                  <div class="col-md-9 col-sm-9 col-xs-12">
+                                    <select class="form-control" id="selected_chart_value">
+                                <option>Chart 1</option>
+                                <option>Chart 2</option>
+                                <option>Chart 3</option>
+                                <option>Chart 4</option>
+                                <option>Chart 5</option>
+                              </select>
+                                  </div>
+                                </div>
+                              </form>
+                            </div>
+
+                            <div class="modal-footer">
+                              <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                              <button type="button" class="btn btn-primary" onclick="createChart(selected_topic_text.value,selected_chart_value.value)" data-dismiss="modal">Save changes</button>
+                            </div>
+                          </div>
+                        </div>
+                        <!--modal end -->
+                      </div>
+                    </div>
+                    <div class="clearfix"></div>
+                  </div>
+                  <div class="x_content visual_content">
+                    <div class="col-md-12 col-sm-12 col-xs-12">
+                      <div class="demo-container" style="height:280px">
+                        <!--<div id="chart_plot_02" class="demo-placeholder"></div>-->
+                        <!-- ★ input chart ★ -->
+                        <!-- <div class="col-md-3 col-sm-3 col-xs-3" style="position: absolute; left: 50%; height:300px;">
+                          <img src="images/img.jpg" id="streamingTag" width="100%" height="100%;" style="position: relative; left: -50%; display: none; margin-left: auto; margin-right:auto; z-index: 100">
+                        </div> -->
+                        <img src="images/img.jpg" id="streamingTag" width="280px" height="280px" style="position: fixed; left: 50%;  margin-left: auto; margin-right:auto; z-index: 100">
+                        <div id="my-chart-tab-class" class="col-md-12 col-sm-12 col-xs-12">
+
+                        </div>
+                        <!-- ★ ★ -->
+                      </div>
+                      <!-- <div class="tiles">
+                      <div class="col-md-4 tile">
+                        <span>Total Sessions</span>
+                        <h2>231,809</h2>
+                        <span class="sparkline11 graph" style="height: 160px;">
+                               <canvas width="200" height="60" style="display: inline-block; vertical-align: top; width: 94px; height: 30px;"></canvas>
+                          </span>
+                      </div>
+                      <div class="col-md-4 tile">
+                        <span>Total Revenue</span>
+                        <h2>$231,809</h2>
+                        <span class="sparkline22 graph" style="height: 160px;">
+                                <canvas width="200" height="60" style="display: inline-block; vertical-align: top; width: 94px; height: 30px;"></canvas>
+                          </span>
+                      </div>
+                      <div class="col-md-4 tile">
+                        <span>Total Sessions</span>
+                        <h2>231,809</h2>
+                        <span class="sparkline11 graph" style="height: 160px;">
+                                 <canvas width="200" height="60" style="display: inline-block; vertical-align: top; width: 94px; height: 30px;"></canvas>
+                          </span>
+                      </div>
+                    </div> -->
+
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /page content -->
+
+      <!-- footer content -->
+      <footer>
+        <div class="pull-right">
+          HILIGHT IoT View Template by <a href="https://colorlib.com">YS</a>
+        </div>
+        <div class="clearfix"></div>
+      </footer>
+      <!-- /footer content -->
+    </div>
+  </div>
+
+
+  <div style="visibility:hidden;" id="myChart">
+    <div class="col-md-4 col-sm-4 col-xs-12">
+      <!-- <div class="x_panel tile fixed_height_320"> -->
+      <div class="x_panel tile">
+        <div class="x_title">
+          <h2>bigName<small>smallName</small></h2>
+          <input type="hidden" id="socketNumber" value="-1">
+          <!-- start options view -->
+          <!-- <ul class="nav navbar-right panel_toolbox">
+            <li><a class="collapse-link"><i class="fa fa-chevron-up"></i></a>
+            </li>
+            <li class="dropdown">
+              <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false"><i class="fa fa-wrench"></i></a>
+              <ul class="dropdown-menu" role="menu">
+                <li><a href="#">Settings 1</a>
+                </li>
+                <li><a href="#">Settings 2</a>
+                </li>
+              </ul>
+            </li>
+            <li><a class="close-link" onclick="close_chart()"><i class="fa fa-close"></i></a>
+            </li>
+          </ul> -->
+          <!-- end options view -->
+          <div class="clearfix"></div>
+        </div>
+        <div>
+          <h4 class="mqtt_messages">내용</h4>
+          <div style="height:200px;">
+            <canvas class="canvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="vendors/Chart.js/dist/Chart.min.js"></script>
+  <script src="vendors/Chart.js/utils.js"></script>
+  <script>
+    var config2 = {
+      type: 'line',
+      data: {
+        labels: ["0"],
+        datasets: [{
+            label: "My First dataset",
+            fill: false,
+            backgroundColor: window.chartColors.red,
+            borderColor: window.chartColors.red,
+            data: [
+              0
+            ],
+          }
+          /* , {
+                        label: "My Second dataset",
+                        fill: false,
+                        backgroundColor: window.chartColors.blue,
+                        borderColor: window.chartColors.blue,
+                        data: [
+                          10
+                        ],
+                    } */
+        ]
+      },
+      options: {
+        responsive: true,
+        title: {
+          display: true,
+          text: 'HILIGHT Line Chart'
+        },
+        tooltips: {
+          mode: 'index',
+          intersect: false,
+        },
+        hover: {
+          mode: 'nearest',
+          intersect: true
+        },
+        scales: {
+          xAxes: [{
+            display: true,
+            scaleLabel: {
+              display: true,
+              labelString: '시간'
+            }
+          }],
+          yAxes: [{
+            display: true,
+            scaleLabel: {
+              display: true,
+              labelString: '온도'
+            }
+          }]
+        }
+      }
+    };
+  </script>
+
+  <!-- Bootstrap -->
+  <script src="vendors/bootstrap/dist/js/bootstrap.min.js"></script>
+  <!-- FastClick -->
+  <script src="vendors/fastclick/lib/fastclick.js"></script>
+  <!-- NProgress -->
+  <script src="vendors/nprogress/nprogress.js"></script>
+  <!-- jQuery Sparklines -->
+  <script src="vendors/jquery-sparkline/dist/jquery.sparkline.min.js"></script>
+  <!-- Flot -->
+  <script src="vendors/Flot/jquery.flot.js"></script>
+  <script src="vendors/Flot/jquery.flot.pie.js"></script>
+  <script src="vendors/Flot/jquery.flot.time.js"></script>
+  <script src="vendors/Flot/jquery.flot.stack.js"></script>
+  <script src="vendors/Flot/jquery.flot.resize.js"></script>
+  <!-- Flot plugins -->
+  <script src="vendors/flot.orderbars/js/jquery.flot.orderBars.js"></script>
+  <script src="vendors/flot-spline/js/jquery.flot.spline.min.js"></script>
+  <script src="vendors/flot.curvedlines/curvedLines.js"></script>
+
+
+
+  <!-- DateJS -->
+  <script src="vendors/DateJS/build/date.js"></script>
+  <!-- bootstrap-daterangepicker -->
+  <script src="vendors/moment/min/moment.min.js"></script>
+  <script src="vendors/bootstrap-daterangepicker/daterangepicker.js"></script>
+
+  <!-- Custom Theme Scripts -->
+  <script src="build/js/custom.min.js"></script>
+</body>
+
+</html>
