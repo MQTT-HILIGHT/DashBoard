@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -21,23 +21,30 @@
 
   <!-- Custom Theme Style -->
   <link href="build/css/custom.min.css" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+  <!--<script src="vendors/mqttws31.min.js" type="text/javascript"></script>-->
+  <script src="vendors/mqtt.js" type="text/javascript"></script>
 
   <!-- jQuery -->
   <script src="vendors/jquery/dist/jquery.min.js"></script>
   <script>
-    var wsbroker = "127.0.0.1"; //mqtt websocket enabled broker
+    var wsbroker = "192.168.50.5"; //mqtt websocket enabled broker
+    //var wsbroker = "192.168.0.53"; //mqtt websocket enabled broker
+    //var wsbroker = "192.168.0.53"; //mqtt websocket enabled broker
     var wsport = 9001; // port for above
     var index = []; // this is canvas index
     var socketArray = [];
     var chart_tab_panel_index = 0;
     var client_num = 0;
-    var mouseX=0, mouseY=0;
+    var mouseX = 0,
+      mouseY = 0;
     var isDragging = false;
     var isImgDragging = false;
     var image;
+    var isStreaming = [];
+
     function connectClient(mchart, topic, selectedChartTabIn, clientIndex) {
       var client = new Paho.MQTT.Client(wsbroker, wsport, "myclientid_" + clientIndex); //parseInt(Math.random() * 100, 10)
+      //console.log(clientIndex + "!!!");
       client.onConnectionLost = onConnectionLost;
       client.onMessageArrived = onMessageArrived;
       // called when the client loses its connection
@@ -54,10 +61,17 @@
         if (chart.data.datasets[0].data.length > 15) {
           chart.options.animation.duration = 0;
           chart.data.labels.shift(); // remove the label first
+          chart.data.datasets[0].data.shift();
+          if (topic.match("temperature")) {
+            //chart.options.scales.yAxes[0].ticks.stepSize = 1;
 
-          chart.data.datasets.forEach(function(dataset, datasetIndex) {
-            dataset.data.shift();
-          });
+            var temp = parseInt(data, 10);
+            console.log(temp);
+            //toFixed, decimalNumbers
+          }
+          // chart.data.datasets.forEach(function(dataset, datasetIndex) {
+          //   dataset.data.shift();
+          // });
           /* chart.data.labels.splice(0, 1);
             chart.data.datasets.forEach((dataset) => {
               dataset.data.splice(0, 1); // remove first data point
@@ -77,24 +91,34 @@
         //alert(encodeURIComponent(message.payloadString));
         //alert(message.payloadString);
         //        var urgencyChart = $("my-chart-class" + selectedChartTabIn + "-" + clientIndex);
-        if ((topic.match("gas") || topic.match("fire") || topic.match("test")) && message.payloadString == "0") {
+        if ((topic.match("gas") || topic.match("fire") || topic.match("test")) && message.payloadString == "0" && isStreaming[selectedChartTabIn] == 0) {
           //alert("재난 발생!");
-          var streamingTag =   $("img#streamingTag" + selectedChartTabIn);
-          streamingTag.attr("src", "http://192.168.0.45:8090/" + topic + ".mjpg");
+          isStreaming[selectedChartTabIn] = 1;
+          var streamingTag = $("img#streamingTag" + selectedChartTabIn);
+          streamingTag.attr("src", "http://192.168.0.7:8090/" + topic + ".mjpg");
+          streamingTag.css("display", "block");
+
           streamingTag.show("slow");
           streamingTag
             .mousedown(function(e) {
+              // image = e.target;
+              // $(e.target).css("position", "fixed");
+              // console.log("mx width " + mouseX + " " + image.width)
+              // console.log("my height " + mouseX + " " + image.width)
+              // $(e.target).css("left", mouseX - (image.width / 2) + "px");
+              // $(e.target).css("top", mouseY - (image.height / 2) + "px");
               isImgDragging = true;
             })
             .mouseup(function(e) {
               isImgDragging = false;
             });
-          image = streamingTag;
           setTimeout(function(stremaingTagIndex) {
             var tag = $("img#streamingTag" + stremaingTagIndex);
-            tag.attr("src", "images/img.jpg");
+            tag.attr("src", "images/fire.png");
+            streamingTag.css("display", "block");
             tag.hide(500);
-          }, 20000, selectedChartTabIn) //10s
+            isStreaming[stremaingTagIndex] = 0;
+          }, 10000, selectedChartTabIn) //10s
         }
 
         var date = new Date();
@@ -102,17 +126,17 @@
         addData(mchart, print_date, message.payloadString);
         $("h4.mqtt_messages")[clientIndex].innerHTML = message.payloadString;
         //alert(message.payloadString);
-        console.log(clientIndex + " onMessageArrived:" + message.payloadString);
+        //console.log(clientIndex + " onMessageArrived:" + message.payloadString);
       }
 
       var options = {
-        timeout: 3,
+        timeout: 300,
         onSuccess: function() {
           socketArray.push(client);
           console.log("mqtt connected");
           // Connection succeeded; subscribe to our topic, you can add multile lines of these
           client.subscribe(topic, {
-            qos: 1
+            qos: 0
           });
 
           //use the below if you want to publish to a topic on connect
@@ -129,6 +153,35 @@
       // connect the client
       client.connect(options);
     }
+    var streamingTag = $("img#streamingTag" + 11);
+    streamingTag.css("display", "block");
+
+    streamingTag.show("slow");
+    streamingTag
+      .mousedown(function(e) {
+        if (image != null) {
+          image = e.target;
+          $(e.target).css("position", "fixed");
+          console.log("mx width " + mouseX + " " + image.width)
+          console.log("my height " + mouseX + " " + image.width)
+          $(e.target).css("left", mouseX - (image.width / 2) + "px");
+          $(e.target).css("top", mouseY - (image.height / 2) + "px");
+        }
+        isImgDragging = true;
+      })
+      .mouseup(function(e) {
+        isImgDragging = false;
+      });
+    setTimeout(function(stremaingTagIndex) {
+      var tag = $("img#streamingTag" + stremaingTagIndex);
+      if (tag != null) {
+        tag.attr("src", "images/fire.png");
+        tag.css("display", "block");
+        tag.css("left", mouseX - (tag.width / 2) + "px");
+        tag.css("top", mouseY - (tag.height / 2) + "px");
+        tag.hide(500);
+      }
+    }, 20000, 11) //10s
 
 
     function createChart(selectedChartTabIndex, target, topic, selected_chart) {
@@ -141,9 +194,10 @@
       chart = chart.replace("close_chart()", "close_chart(" + selectedChartTabIndex + "," + index[selectedChartTabIndex] + ")");
       chart = chart.replace("class=\"col-md-4 col-sm-4 col-xs-12\"", "class=\"col-md-4 col-sm-4 col-xs-12\" id=\"my-chart-class" + selectedChartTabIndex + "-" + index[selectedChartTabIndex] + "\"");
       chart = chart.replace("socketNumber", "socketNumber" + selectedChartTabIndex + "-" + index[selectedChartTabIndex]);
-      if (selectedChartTabIndex == 0) {
-        chart = chart.replace("col-md-4 col-sm-4 col-xs-12", "col-md-6 col-sm-6 col-xs-12");
-      } else if (topic == "gas" || topic == "fire") {
+      // if (selectedChartTabIndex == 0) {
+      //   chart = chart.replace("col-md-4 col-sm-4 col-xs-12", "col-md-6 col-sm-6 col-xs-12");
+      // }
+      if (topic.match("gas") || topic.match("fire")) {
         chart = chart.replace("col-md-4 col-sm-4 col-xs-12", "col-md-6 col-sm-6 col-xs-12");
       }
       $("div#" + target).append(chart); //
@@ -154,24 +208,14 @@
         data: {
           labels: ["0"],
           datasets: [{
-              label: "My First dataset",
-              fill: false,
-              backgroundColor: window.chartColors.red,
-              borderColor: window.chartColors.red,
-              data: [
-                0
-              ],
-            }
-            /* , {
-                          label: "My Second dataset",
-                          fill: false,
-                          backgroundColor: window.chartColors.blue,
-                          borderColor: window.chartColors.blue,
-                          data: [
-                            10
-                          ],
-                      } */
-          ]
+            label: "HILIGHT dataset",
+            fill: false,
+            backgroundColor: window.chartColors.red,
+            borderColor: window.chartColors.red,
+            data: [
+              0
+            ],
+          }]
         },
         options: {
           responsive: true,
@@ -206,22 +250,29 @@
                 labelString: '온도'
               },
               ticks: {
-                min: 0
+
               }
+              // ticks: {
+              //   maxTicksLimit : 3
+              // }
+              // },
+              // ticks: {
+              //   min: 0
+              // }
             }]
           }
         }
       };
 
       var chart = new Chart(ctx, config);
-      if (selectedChartTabIndex == 0) {
-        chart.data.datasets[0].borderColor = window.chartColors.red;
-      } else {
-        chart.data.datasets[0].borderColor = window.chartColors.black;
+      var res = topic.split("/");
+      if(res.length>0){
+          chart.data.datasets[0].label = res[res.length-1];
       }
+      chart.data.datasets[0].borderColor = window.chartColors.black;
 
       if (topic.match("humid")) {
-        chart.options.scales.yAxes[0].ticks.max = 100;
+        chart.options.scales.yAxes[0].ticks.stepSize = 5;
       } else if (topic.match("gas") || topic.match("fire")) {
         chart.options.scales.yAxes[0].ticks.max = 1;
         chart.data.datasets[0].borderColor = window.chartColors.red;
@@ -231,6 +282,9 @@
       } else if (topic.match("noise")) {
         chart.options.scales.yAxes[0].ticks.min = 20;
         chart.options.scales.yAxes[0].ticks.max = 100;
+      }
+      else if(topic.match("temperature")){
+        chart.options.scales.yAxes[0].ticks.stepSize = 5;
       }
       chart.options.scales.yAxes[0].scaleLabel.labelString = topic;
 
@@ -263,6 +317,7 @@
       chart = chart.replace("createChart(selected", "createChart(" + chart_tab_panel_index + ",'my-chart-tab-class" + chart_tab_panel_index + "',selected");
       index.push(0);
       chart = chart.replace(/streamingTag/g, "streamingTag" + chart_tab_panel_index);
+      isStreaming[chart_tab_panel_index] = 0;
       chart = chart.replace(/mySensorModalLabel/g, "mySensorModalLabel" + chart_tab_panel_index++);
       chart = chart.replace("HILIGHT DashBoard", selected_chart_tab_name);
       $("div#chart_tab_row").append(chart);
@@ -280,31 +335,31 @@
     }
     var globalexitfullscreen = getexitfullscreen();
     $(document).ready(function() {
-      addChartBoard("HILIGHT DashBoard");
+      <!-- addChartBoard("HILIGHT DashBoard"); -->
 
       $(".right_col")
-      .mousedown(function(e) {
-        isDragging = true;
-      })
-      .mousemove(function(e) {
-        if(isDragging && isImgDragging){
-          console.log(e.pageX + " " + e.pageY);
-          mouseX = e.pageX;
-          mouseY = e.pageY;
-          image.css("top",e.pageY-(image.height()/2)+"px");
-          image.css("left",e.pageX-(image.width()/2)+"px");
-        }
-      })
-      .mouseup(function(e) {
-        isDragging = false;
-      })
-      .mouseleave(function(e){
-        isDragging = false;
-        console.log("out!")
-      })
-      .mouseenter(function(e){
+        .mousedown(function(e) {
+          isDragging = true;
+        })
+        .mousemove(function(e) {
+          mouseX = e.screenX;
+          mouseY = e.screenY;
+          if (isDragging && isImgDragging && image != null) {
+            mouseX = e.screenX;
+            mouseY = e.screenY;
+            $(image).css("top", e.screenX - (image.height / 2) + "px");
+            $(image).css("left", e.screenY - (image.width / 2) + "px");
+          }
+        })
+        .mouseup(function(e) {
+          isDragging = false;
+        })
+        .mouseleave(function(e) {
+          isDragging = false;
+        })
+        .mouseenter(function(e) {
 
-      });
+        });
     });
 
     function getexitfullscreen() {
@@ -343,7 +398,7 @@
           <!-- menu profile quick info -->
           <div class="profile clearfix">
             <div class="profile_pic">
-              <img src="images/HILIGHT.png" alt="..." class="img-circle profile_img">
+              <!--<img src="images/HILIGHT.png" alt="..." class="img-circle profile_img">-->
             </div>
             <div class="profile_info">
               <span>Welcome,</span>
@@ -359,7 +414,7 @@
             <div class="menu_section">
               <h3>General</h3>
               <ul class="nav">
-                <li><a href="hilight.html" style="color: white;"><i class="fa fa-desktop"></i>HILIGHT Dashboard</a></li>
+                <li><a href="HILIGHT.html" style="color: white;"><i class="fa fa-desktop"></i>HILIGHT Dashboard</a></li>
               </ul>
               <!-- <ul class="nav side-menu">
                 <li><a><i class="fa fa-home"></i> Dashboard <span class="fa fa-chevron-down">f</span></a>
@@ -602,10 +657,12 @@
                       <div class="demo-container" style="height:280px">
                         <!--<div id="chart_plot_02" class="demo-placeholder"></div>-->
                         <!-- ★ input chart ★ -->
-                        <!-- <div class="col-md-3 col-sm-3 col-xs-3" style="position: absolute; left: 50%; height:300px;">
+                        <!--
+                        <div class="col-md-3 col-sm-3 col-xs-3" style="position: absolute; left: 50%; height:300px;">
                           <img src="images/img.jpg" id="streamingTag" width="100%" height="100%;" style="position: relative; left: -50%; display: none; margin-left: auto; margin-right:auto; z-index: 100">
-                        </div> -->
-                        <img src="images/img.jpg" id="streamingTag" width="280px" height="280px" style="position: fixed; left: 50%;  margin-left: auto; margin-right:auto; z-index: 100">
+                        </div>
+                        -->
+                        <img id="streamingTag" src="images/fire.png" height="480px" style="position: block; z-index: 100; display:none; ">
                         <div id="my-chart-tab-class" class="col-md-12 col-sm-12 col-xs-12">
 
                         </div>
@@ -753,7 +810,43 @@
       }
     };
   </script>
+  <script>
+  /*================= 자동으로 많은 client 추가하는 부분 ==================*/
+   
+    function sleep(time) {
+      return new Promise((resolve) => setTimeout(resolve, time));
+    }
+    var roomNumber = 101;
+    var sensors = ["fire", "gas", "temperature", "humid", "vibrate"];
+    var bulidings = ["TruthCenter"];
+    var bulidingsKor = ["진리관"];
+    var chartTabCount = 0;
+    var buildingRoomCount = 10; //How many room in one building
+    for (var k = 0; k < bulidings.length; k++) {
+      for (var i = 0; i < buildingRoomCount; i++) {
+        var chartName = bulidingsKor[k] + " " + roomNumber + "호";
+        addChartBoard(chartName); //add chartTab ex)공학관 112호
+        for (var j = 0; j < sensors.length; j++) {
+          var topicName = bulidings[k] + "/" + roomNumber + "/" + sensors[j];
+          createChart(chartTabCount, "my-chart-tab-class" + chartTabCount, topicName, "Chart 1");
+        }
 
+        // var content = $(".visual_content")[chartTabCount];
+        // $(content).toggle();
+        chartTabCount++;
+        roomNumber++;
+        if (roomNumber == 111)
+          roomNumber += 100;
+
+      }
+      roomNumber = 101;
+    }
+    $(document).ready(function() {
+      var content = $(".visual_content");
+      for (var i = 0; i < content.length; i++)
+        $(content[i]).toggle();
+    });
+  </script> -
   <!-- Bootstrap -->
   <script src="vendors/bootstrap/dist/js/bootstrap.min.js"></script>
   <!-- FastClick -->
